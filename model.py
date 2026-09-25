@@ -29,7 +29,23 @@ print(
     f"Тест: {X_test.shape}"
 )
 
-my_tree = DecisionTreeClassifier(max_depth=4, min_samples_leaf=5, random_state=SEED)
-my_tree.fit(X_train, y_train)
-tree_probs = my_tree.predict_proba(X_validation)[:, 1]
-print("ROC-AUC дерева:", roc_auc_score(y_validation, tree_probs))
+depth = list(range(1, 11))
+leaves = list(range(5, 51, 5))
+print(depth, leaves)
+best_auc = 0
+best_params = None
+
+for d in depth:
+    for leave in leaves:
+        my_tree = DecisionTreeClassifier(
+            max_depth=d, min_samples_leaf=leave, random_state=SEED
+        )
+        my_tree.fit(X_train, y_train)
+        tree_probs = my_tree.predict_proba(X_validation)[:, 1]
+
+        auc = roc_auc_score(y_validation, tree_probs)
+        if auc > best_auc:
+            best_auc = auc
+            best_params = (d, leave)
+
+print(f"Лучший ROC-AUC: {best_auc}, параметры (depth, leaf): {best_params}")
