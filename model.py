@@ -33,18 +33,13 @@ print(
 param_grid = {
     "criterion": ["gini", "entropy", "log_loss"],
     "splitter": ["best", "random"],
-    "max_depth": list(range(1, 13)) + [None],
-    "min_samples_split": list(range(2, 21, 2)),
-    "min_samples_leaf": list(range(1, 36, 2)),
-    "max_features": [None, "sqrt", "log2"]
-    + [round(x * 0.1, 1) for x in range(1, 10, 2)],
+    "max_depth": list(range(2, 21)),
+    "min_samples_split": list(range(2, 31)),
+    "min_samples_leaf": list(range(1, 41)),
+    "max_features": [None, "sqrt", "log2", 0.3, 0.5, 0.7],
     "class_weight": [None, "balanced"],
-    "ccp_alpha": [0.0] + [round(x * 0.002, 4) for x in range(1, 6)],
+    "ccp_alpha": [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01],
 }
-
-grid = list(ParameterGrid(param_grid))
-
-print(f"Всего комбинаций для перебора: {len(grid)}")
 
 
 def test_tree(params):
@@ -55,19 +50,64 @@ def test_tree(params):
     return auc, params
 
 
-tasks = [delayed(test_tree)(p) for p in grid]
-
-print("Перебор гиперпараметров")
-
-results = list(
-    tqdm(
-        Parallel(n_jobs=-1, batch_size=64, return_as="generator")(tasks),
-        total=len(tasks),
-        desc="Прогресс",
+def run_grid(grid):
+    print(f"Всего комбинаций для перебора: {len(grid)}")
+    tasks = [delayed(test_tree)(p) for p in grid]
+    return list(
+        tqdm(
+            Parallel(n_jobs=-1, batch_size=64, return_as="generator")(tasks),
+            total=len(tasks),
+            desc="Прогресс",
+        )
     )
+
+
+coarse_grid = param_grid.copy()
+coarse_grid.update(
+    max_depth=[2, 8, 14, 20],
+    min_samples_split=[2, 16, 30],
+    min_samples_leaf=[1, 20, 40],
+    ccp_alpha=[0.0, 0.005, 0.01],
 )
+print("Грубый перебор гиперпараметров")
+results = run_grid(list(ParameterGrid(coarse_grid)))
+
+top_results = sorted(results, key=lambda x: x[0], reverse=True)[:3]
+# Здесь только радиусы числовых окон
+window = {
+    "max_depth": 3,
+    "min_samples_split": 8,
+    "min_samples_leaf": 10,
+    "max_features": 0.2,
+    "ccp_alpha": 0.004,
+}
+fine_grid = []
+checked = {tuple(sorted(params.items())) for _, params in results}
+for _, params in top_results:
+    # Сначала сохраняем ВСЕ параметры; затем уточняем только числовые значения.
+    local_grid = {name: [value] for name, value in params.items()}
+    for name, radius in window.items():
+        if isinstance(params[name], (int, float)):
+            local_grid[name] = [
+                value
+                for value in param_grid[name]
+                if isinstance(value, (int, float))
+                and round(abs(value - params[name]), 10) <= radius
+            ]
+    for params in ParameterGrid(local_grid):
+        key = tuple(sorted(params.items()))
+        if key not in checked:
+            checked.add(key)
+            fine_grid.append(params)
+
+print("Уточнение гиперпараметров")
+results.extend(run_grid(fine_grid))
 
 best_auc, best_params = max(results, key=lambda x: x[0])
-print(f"Лучший AUC: {best_auc:.5f}")
+print(f"Лучший AUC на валидации: {best_auc:.5f}")
 for param_name, param_val in best_params.items():
     print(f"  {param_name}: {param_val}")
+
+# финальное обучение
+tree = DecisionTreeClassifier(**best_params, random_state=SEED)
+tree.fit(X_train, y_train)
