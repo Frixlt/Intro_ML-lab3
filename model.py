@@ -3,6 +3,7 @@ from pathlib import Path
 from joblib import Parallel, delayed
 import pandas as pd
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import ParameterGrid
 from sklearn.tree import DecisionTreeClassifier
 from tqdm import tqdm
 
@@ -29,14 +30,24 @@ print(
 )
 
 
-depth = list(range(1, 11))
-leaves = list(range(5, 51, 5))
-criterion = ["gini", "log_loss"]
-max_features = [None, "sqrt", 0.5]
-total_tasks = len(depth) * len(leaves) * len(criterion) * len(max_features)
+param_grid = {
+    "criterion": ["gini", "entropy", "log_loss"],
+    "splitter": ["best", "random"],
+    "max_depth": list(range(1, 13)) + [None],
+    "min_samples_split": list(range(2, 21, 2)),
+    "min_samples_leaf": list(range(1, 36, 2)),
+    "max_features": [None, "sqrt", "log2"]
+    + [round(x * 0.1, 1) for x in range(1, 10, 2)],
+    "class_weight": [None, "balanced"],
+    "ccp_alpha": [0.0] + [round(x * 0.002, 4) for x in range(1, 6)],
+}
+
+grid = list(ParameterGrid(param_grid))
+
+print(f"Всего комбинаций для перебора: {len(grid)}")
 
 
-def test_tree(**params):
+def test_tree(params):
     tree = DecisionTreeClassifier(**params, random_state=SEED)
     tree.fit(X_train, y_train)
     probs = tree.predict_proba(X_validation)[:, 1]
@@ -44,29 +55,19 @@ def test_tree(**params):
     return auc, params
 
 
-tasks = [
-    delayed(test_tree)(
-        max_depth=d,
-        min_samples_leaf=l,
-        criterion=c,
-        max_features=f,
-    )
-    for d in depth
-    for l in leaves
-    for c in criterion
-    for f in max_features
-]
+tasks = [delayed(test_tree)(p) for p in grid]
+
+print("Перебор гиперпараметров")
 
 results = list(
     tqdm(
-        Parallel(n_jobs=-1, return_as="generator")(tasks),
+        Parallel(n_jobs=-1, batch_size=64, return_as="generator")(tasks),
         total=len(tasks),
         desc="Прогресс",
     )
 )
 
 best_auc, best_params = max(results, key=lambda x: x[0])
-
 print(f"Лучший AUC: {best_auc:.5f}")
 for param_name, param_val in best_params.items():
     print(f"  {param_name}: {param_val}")
