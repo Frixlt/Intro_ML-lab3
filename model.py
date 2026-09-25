@@ -8,6 +8,7 @@ from sklearn.model_selection import ParameterGrid, StratifiedKFold, cross_val_sc
 from tqdm import tqdm
 
 SEED = 20260916
+DEVICE = "cpu"  # "cpu" или "cuda"
 DATA_DIR = Path(__file__).resolve().parent
 train = pd.read_csv(DATA_DIR / "train.csv")
 validation = pd.read_csv(DATA_DIR / "validation.csv")
@@ -31,10 +32,14 @@ print(
 
 
 param_grid = {
-    "n_estimators": [100, 200, 300, 400, 500],
+    "boosting_type": ["gbdt", "goss"],
+    "max_depth": [4, 5, 6, 7],
+    "num_leaves": [31, 63, 95, 127],
+    "min_child_samples": [20, 25, 28, 30, 40],
     "learning_rate": [0.03, 0.05, 0.1],
-    "num_leaves": [7, 15, 31, 47, 63],
-    "min_child_samples": [10, 20, 30, 40, 50],
+    "n_estimators": [200, 300, 400, 500],
+    "colsample_bytree": [0.7, 0.8, 1.0],
+    "reg_lambda": [0.0, 0.05, 0.1, 0.5],
 }
 
 cv = list(
@@ -43,10 +48,13 @@ cv = list(
 
 
 def test_model(params):
+    device = "cpu" if params.get("boosting_type") == "goss" else DEVICE
+    n_jobs = -1 if device == "cpu" else 1
     model = LGBMClassifier(
         **params,
+        device=device,
         random_state=SEED,
-        n_jobs=1,
+        n_jobs=n_jobs,
         verbosity=-1,
     )
     scores = cross_val_score(
@@ -66,7 +74,7 @@ def run_grid(grid):
     tasks = [delayed(test_model)(p) for p in grid]
     return list(
         tqdm(
-            Parallel(n_jobs=-1, batch_size=64, return_as="generator")(tasks),
+            Parallel(n_jobs=4, batch_size="auto", return_as="generator")(tasks),
             total=len(tasks),
             desc="Прогресс",
         )
@@ -75,21 +83,31 @@ def run_grid(grid):
 
 coarse_grid = param_grid.copy()
 coarse_grid.update(
-    n_estimators=[100, 300, 500],
-    learning_rate=[0.03, 0.1],
-    num_leaves=[7, 31, 63],
-    min_child_samples=[10, 30, 50],
+    max_depth=[5],
+    num_leaves=[63, 95],
+    min_child_samples=[20, 30],
+    n_estimators=[300, 400],
+    learning_rate=[0.05, 0.1],
+    colsample_bytree=[0.8],
+    reg_lambda=[0.0, 0.1],
 )
 print("Грубый перебор гиперпараметров")
 results = run_grid(list(ParameterGrid(coarse_grid)))
 
 top_results = sorted(results, key=lambda x: x[0], reverse=True)[:3]
+coarse_best_auc, coarse_best_params = top_results[0]
+print(f"Лучший AUC после 1-го этапа: {coarse_best_auc:.5f}")
+print(f"Лучшая комбинация: {coarse_best_params}")
+
 # Здесь только радиусы числовых окон
 window = {
+    "max_depth": 1,
+    "num_leaves": 32,
+    "min_child_samples": 5,
+    "learning_rate": 0.03,
     "n_estimators": 100,
-    "learning_rate": 0.05,
-    "num_leaves": 16,
-    "min_child_samples": 10,
+    "colsample_bytree": 0.15,
+    "reg_lambda": 0.1,
 }
 fine_grid = []
 checked = {tuple(sorted(params.items())) for _, params in results}
@@ -104,22 +122,29 @@ for _, params in top_results:
                 if isinstance(value, (int, float))
                 and round(abs(value - params[name]), 10) <= radius
             ]
-    for params in ParameterGrid(local_grid):
-        key = tuple(sorted(params.items()))
+    for p in ParameterGrid(local_grid):
+        key = tuple(sorted(p.items()))
         if key not in checked:
             checked.add(key)
-            fine_grid.append(params)
+            fine_grid.append(p)
 
 print("Уточнение гиперпараметров")
 results.extend(run_grid(fine_grid))
 
 best_auc, best_params = max(results, key=lambda x: x[0])
 print(f"Лучший средний AUC по кросс-валидации: {best_auc:.5f}")
+print(f"Лучшая комбинация: {best_params}")
 for param_name, param_val in best_params.items():
     print(f"  {param_name}: {param_val}")
 
-# финальное обучение
-model = LGBMClassifier(**best_params, random_state=SEED, n_jobs=1, verbosity=-1)
+device = "cpu" if best_params.get("boosting_type") == "goss" else DEVICE
+model = LGBMClassifier(
+    **best_params,
+    device=device,
+    random_state=SEED,
+    n_jobs=4 if device == "cpu" else 1,
+    verbosity=-1,
+)
 model.fit(X_train, y_train)
 probs = model.predict_proba(X_validation)[:, 1]
 print(f"AUC на валидации: {roc_auc_score(y_validation, probs):.5f}")
