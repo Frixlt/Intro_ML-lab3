@@ -43,7 +43,6 @@ lightning_logs/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
 *.swp
 *.swo
 *~
