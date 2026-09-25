@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from joblib import Parallel, delayed
+from lightgbm import LGBMClassifier
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import ParameterGrid, StratifiedKFold, cross_val_score
-from sklearn.tree import DecisionTreeClassifier
 from tqdm import tqdm
 
 SEED = 20260916
@@ -31,14 +31,10 @@ print(
 
 
 param_grid = {
-    "criterion": ["gini", "entropy", "log_loss"],
-    "splitter": ["best", "random"],
-    "max_depth": list(range(2, 21)),
-    "min_samples_split": list(range(2, 31)),
-    "min_samples_leaf": list(range(1, 41)),
-    "max_features": [None, "sqrt", "log2", 0.3, 0.5, 0.7],
-    "class_weight": [None, "balanced"],
-    "ccp_alpha": [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01],
+    "n_estimators": [100, 200, 300, 400, 500],
+    "learning_rate": [0.03, 0.05, 0.1],
+    "num_leaves": [7, 15, 31, 47, 63],
+    "min_child_samples": [10, 20, 30, 40, 50],
 }
 
 cv = list(
@@ -46,10 +42,15 @@ cv = list(
 )
 
 
-def test_tree(params):
-    tree = DecisionTreeClassifier(**params, random_state=SEED)
+def test_model(params):
+    model = LGBMClassifier(
+        **params,
+        random_state=SEED,
+        n_jobs=1,
+        verbosity=-1,
+    )
     scores = cross_val_score(
-        tree,
+        model,
         X_train,
         y_train,
         cv=cv,
@@ -62,7 +63,7 @@ def test_tree(params):
 
 def run_grid(grid):
     print(f"Всего комбинаций для перебора: {len(grid)}")
-    tasks = [delayed(test_tree)(p) for p in grid]
+    tasks = [delayed(test_model)(p) for p in grid]
     return list(
         tqdm(
             Parallel(n_jobs=-1, batch_size=64, return_as="generator")(tasks),
@@ -74,10 +75,10 @@ def run_grid(grid):
 
 coarse_grid = param_grid.copy()
 coarse_grid.update(
-    max_depth=[2, 8, 14, 20],
-    min_samples_split=[2, 16, 30],
-    min_samples_leaf=[1, 20, 40],
-    ccp_alpha=[0.0, 0.005, 0.01],
+    n_estimators=[100, 300, 500],
+    learning_rate=[0.03, 0.1],
+    num_leaves=[7, 31, 63],
+    min_child_samples=[10, 30, 50],
 )
 print("Грубый перебор гиперпараметров")
 results = run_grid(list(ParameterGrid(coarse_grid)))
@@ -85,11 +86,10 @@ results = run_grid(list(ParameterGrid(coarse_grid)))
 top_results = sorted(results, key=lambda x: x[0], reverse=True)[:3]
 # Здесь только радиусы числовых окон
 window = {
-    "max_depth": 3,
-    "min_samples_split": 8,
-    "min_samples_leaf": 10,
-    "max_features": 0.2,
-    "ccp_alpha": 0.004,
+    "n_estimators": 100,
+    "learning_rate": 0.05,
+    "num_leaves": 16,
+    "min_child_samples": 10,
 }
 fine_grid = []
 checked = {tuple(sorted(params.items())) for _, params in results}
@@ -119,7 +119,7 @@ for param_name, param_val in best_params.items():
     print(f"  {param_name}: {param_val}")
 
 # финальное обучение
-tree = DecisionTreeClassifier(**best_params, random_state=SEED)
-tree.fit(X_train, y_train)
-probs = tree.predict_proba(X_validation)[:, 1]
+model = LGBMClassifier(**best_params, random_state=SEED, n_jobs=1, verbosity=-1)
+model.fit(X_train, y_train)
+probs = model.predict_proba(X_validation)[:, 1]
 print(f"AUC на валидации: {roc_auc_score(y_validation, probs):.5f}")
