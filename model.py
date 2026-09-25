@@ -41,7 +41,9 @@ param_grid = {
     "ccp_alpha": [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01],
 }
 
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED)
+cv = list(
+    StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED).split(X_train, y_train)
+)
 
 
 def test_tree(params):
