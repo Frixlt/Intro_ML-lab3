@@ -1,0 +1,75 @@
+[project]
+name = "into_to_ai_lab3"
+readme = "README.md"
+authors = [{ name = "frixit", email = "05mba0622@gmail.com" }]
+version = "0.1.0"
+requires-python = ">=3.13,<3.14" # Строго просим 3.13 и запрещаем ломающий 3.14
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "numpy",
+    "matplotlib",
+    "scikit-learn>=1.9.1",
+    "pandas>=3.0.5",
+    "seaborn>=0.13.2",
+    "torchtyping>=0.1.5",
+    "tqdm>=4.70.1",
+    "xgboost>=3.4.1",
+    "lightgbm>=4.7.0",
+    "catboost>=1.2.10",
+    "ipywidgets>=8.1.9",
+    "optuna>=5.0.0",
+    "cmaes>=0.13.1",
+]
+
+[dependency-groups]
+dev = ["ipykernel>=7.3.0", "nbconvert>=7.17.1", "ruff>=0.16.8"]
+
+# =============================================================
+# Ruff — линтер и форматтер
+# =============================================================
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+exclude = [".venv", "__pycache__", ".git", ".ipynb_checkpoints"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "B",    # bugbear
+    "A",    # builtins shadowing
+    "C4",   # comprehensions
+    "T20",  # print statements
+    "RET",  # return
+    "PTH",  # pathlib
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+    "PERF", # performance
+]
+ignore = [
+    "COM812", # trailing comma — handled by ruff format
+    "T201",   # allow print() in notebooks
+]
+
+[tool.ruff.lint.isort]
+known-first-party = []
+force-sort-within-sections = true
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+
+[tool.ruff.format]
+quote-style = "double"
+
+# =============================================================
+# Pytest
+# =============================================================
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+addopts = "--tb=short -q"

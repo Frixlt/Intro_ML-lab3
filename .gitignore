@@ -1,0 +1,50 @@
+# ==========================================
+# Virtual environments
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================================
+# Python bytecode & cache
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ==========================================
+# Linters & Tools cache
+# ==========================================
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# Jupyter & IPython
+# ==========================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ==========================================
+# ML logs, checkpoints & training artifacts
+# ==========================================
+catboost_info/
+wandb/
+lightning_logs/
+
+# ==========================================
+# OS & Editor specific
+# ==========================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
