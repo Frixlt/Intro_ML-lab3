@@ -3,7 +3,7 @@ from pathlib import Path
 from joblib import Parallel, delayed
 import pandas as pd
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import ParameterGrid
+from sklearn.model_selection import ParameterGrid, StratifiedKFold, cross_val_score
 from sklearn.tree import DecisionTreeClassifier
 from tqdm import tqdm
 
@@ -41,13 +41,21 @@ param_grid = {
     "ccp_alpha": [0.0, 0.0005, 0.001, 0.002, 0.005, 0.01],
 }
 
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED)
+
 
 def test_tree(params):
     tree = DecisionTreeClassifier(**params, random_state=SEED)
-    tree.fit(X_train, y_train)
-    probs = tree.predict_proba(X_validation)[:, 1]
-    auc = roc_auc_score(y_validation, probs)
-    return auc, params
+    scores = cross_val_score(
+        tree,
+        X_train,
+        y_train,
+        cv=cv,
+        scoring="roc_auc",
+        n_jobs=1,
+        error_score="raise",
+    )
+    return scores.mean(), params
 
 
 def run_grid(grid):
@@ -104,10 +112,12 @@ print("Уточнение гиперпараметров")
 results.extend(run_grid(fine_grid))
 
 best_auc, best_params = max(results, key=lambda x: x[0])
-print(f"Лучший AUC на валидации: {best_auc:.5f}")
+print(f"Лучший средний AUC по кросс-валидации: {best_auc:.5f}")
 for param_name, param_val in best_params.items():
     print(f"  {param_name}: {param_val}")
 
 # финальное обучение
 tree = DecisionTreeClassifier(**best_params, random_state=SEED)
 tree.fit(X_train, y_train)
+probs = tree.predict_proba(X_validation)[:, 1]
+print(f"AUC на валидации: {roc_auc_score(y_validation, probs):.5f}")
